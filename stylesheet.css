@@ -1,0 +1,19 @@
+.sound-enhancer-volume-entry {
+    width: 40px;
+    min-width: 40px;
+    max-width: 40px;
+    padding: 4px 2px;
+    margin-left: 4px;
+    border-radius: 10px;
+    background-color: rgba(128, 128, 128, 0.18);
+    font-weight: 600;
+}
+
+.sound-enhancer-volume-entry:focus,
+.sound-enhancer-volume-entry:hover {
+    background-color: rgba(128, 128, 128, 0.30);
+}
+
+.sound-enhancer-volume-entry StLabel {
+    text-align: center;
+}

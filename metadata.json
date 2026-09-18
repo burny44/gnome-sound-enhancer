@@ -1,0 +1,9 @@
+{
+    "uuid": "sound-enhancer@burny",
+    "name": "Sound Enhancer",
+    "description": "Keeps GNOME volume on 5% steps and, optionally, adds a typeable volume number next to the Quick Settings sound slider.",
+    "shell-version": ["49", "50"],
+    "settings-schema": "org.gnome.shell.extensions.sound-enhancer",
+    "url": "https://github.com/burny44/gnome-sound-enhancer",
+    "version-name": "1.0"
+}
