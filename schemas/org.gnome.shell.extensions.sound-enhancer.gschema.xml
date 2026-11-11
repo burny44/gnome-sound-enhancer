@@ -7,8 +7,8 @@
       <summary>Snap volume to 5% steps</summary>
       <description>
         When enabled, volume always moves in 5% increments. Keyboard volume
-        keys, scrolling, and the Quick Settings slider all land on 0, 5, 10,
-        and so on, instead of mixed 5/6% jumps.
+        keys, headset volume wheels, scrolling, and the Quick Settings slider
+        all land on 0, 5, 10, and so on, instead of mixed 5/6% or 10% jumps.
       </description>
     </key>
     <key name="show-volume-number" type="b">

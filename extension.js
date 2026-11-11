@@ -9,6 +9,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const STEP_PERCENT = 5;
 const STEP = STEP_PERCENT / 100;
+const STEP_GUARD_MS = 28;
 const MEDIA_KEYS_SCHEMA = 'org.gnome.settings-daemon.plugins.media-keys';
 const VOLUME_STEP_KEY = 'volume-step';
 
@@ -26,13 +27,20 @@ function snapValue(value, maxValue) {
     return snapPercent(value * 100, maxPercent) / 100;
 }
 
-function volumePercent(output) {
+function rawVolumePercent(output) {
     const stream = output?.stream;
     if (!stream || !output._control)
         return 0;
-    if (stream.is_muted)
+    const maxNorm = output._control.get_vol_max_norm();
+    if (!maxNorm)
         return 0;
-    return (stream.volume / output._control.get_vol_max_norm()) * 100;
+    return (stream.volume / maxNorm) * 100;
+}
+
+function volumePercent(output) {
+    if (output?.stream?.is_muted)
+        return 0;
+    return rawVolumePercent(output);
 }
 
 function maxVolumePercent(output) {
@@ -54,6 +62,10 @@ export default class SoundEnhancer extends Extension {
         this._injectSource = 0;
         this._streamUpdatedId = 0;
         this._sliderNotifyId = 0;
+        this._lastPercent = null;
+        this._sliderOrigin = false;
+        this._stepGuardUntil = 0;
+        this._stepGuardDir = 0;
 
         this._settings.connectObject(
             'changed::five-percent-steps',
@@ -126,8 +138,18 @@ export default class SoundEnhancer extends Extension {
         output._gseOriginalStep = output.slider.step.bind(output.slider);
         output.slider.step = nSteps => this._onSliderStep(nSteps);
 
+        if (typeof output.slider._applyDelta === 'function') {
+            output._gseOriginalApplyDelta = output.slider._applyDelta.bind(output.slider);
+            output.slider._applyDelta = delta => this._onSliderDelta(delta);
+        }
+
+        this._lastPercent = rawVolumePercent(output);
+        this._sliderOrigin = false;
+        this._stepGuardUntil = 0;
+        this._stepGuardDir = 0;
+
         this._streamUpdatedId = output.connect('stream-updated', () => {
-            this._snapStreamIfNeeded();
+            this._applyExternalStep();
             this._syncEntryText();
         });
         this._sliderNotifyId = output.slider.connect('notify::value', () => {
@@ -157,7 +179,12 @@ export default class SoundEnhancer extends Extension {
             output.slider.step = output._gseOriginalStep;
             delete output._gseOriginalStep;
         }
+        if (output._gseOriginalApplyDelta && output.slider) {
+            output.slider._applyDelta = output._gseOriginalApplyDelta;
+            delete output._gseOriginalApplyDelta;
+        }
 
+        this._lastPercent = null;
         this._output = null;
     }
 
@@ -171,7 +198,7 @@ export default class SoundEnhancer extends Extension {
 
     _syncSteps() {
         this._applyVolumeStep();
-        this._snapStreamIfNeeded();
+        this._applyExternalStep();
         this._syncEntryText();
     }
 
@@ -212,6 +239,8 @@ export default class SoundEnhancer extends Extension {
         }
 
         output._gseOriginalSliderChanged();
+        this._sliderOrigin = true;
+        this._lastPercent = output.slider.value * 100;
         this._syncEntryText();
     }
 
@@ -223,31 +252,83 @@ export default class SoundEnhancer extends Extension {
         if (!this._stepsEnabled())
             return output._gseOriginalStep(nSteps);
 
+        if (!nSteps)
+            return false;
+
         const slider = output.slider;
+        const delta = Math.sign(nSteps) * STEP;
         if (typeof slider._applyDelta === 'function')
-            return slider._applyDelta(nSteps * STEP);
+            return slider._applyDelta(delta);
 
         const old = slider.value;
-        slider.value = clamp(old + nSteps * STEP, 0, slider.maximum_value);
+        slider.value = clamp(old + delta, 0, slider.maximum_value);
         return slider.value !== old;
     }
 
-    _snapStreamIfNeeded() {
+    _onSliderDelta(delta) {
+        const output = this._output;
+        if (!output?._gseOriginalApplyDelta)
+            return false;
+
+        if (this._stepsEnabled() && Math.abs(delta) > STEP + 0.0005)
+            delta = Math.sign(delta) * STEP;
+
+        return output._gseOriginalApplyDelta(delta);
+    }
+
+    _showVolumeOsd() {
+        this._output?.showOSD?.();
+    }
+
+    _applyExternalStep() {
         const output = this._output;
         const stream = output?.stream;
-        if (!this._stepsEnabled() || this._busy || !stream || stream.is_muted)
+        if (!this._stepsEnabled() || this._busy || !stream)
             return;
 
-        const maxNorm = output._control.get_vol_max_norm();
-        if (!maxNorm)
-            return;
+        const percent = rawVolumePercent(output);
+        const maxPercent = maxVolumePercent(output);
 
-        const percent = (stream.volume / maxNorm) * 100;
-        const snapped = snapPercent(percent, maxVolumePercent(output));
-        if (Math.abs(percent - snapped) < 0.6)
+        if (this._sliderOrigin) {
+            this._sliderOrigin = false;
+            this._lastPercent = snapPercent(percent, maxPercent);
             return;
+        }
 
-        this._setVolumePercent(snapped);
+        if (this._lastPercent === null) {
+            this._lastPercent = snapPercent(percent, maxPercent);
+            return;
+        }
+
+        const now = GLib.get_monotonic_time() / 1000;
+        const delta = percent - this._lastPercent;
+
+        if (this._stepGuardUntil && now < this._stepGuardUntil &&
+            delta !== 0 && Math.sign(delta) === this._stepGuardDir) {
+            if (Math.abs(percent - this._lastPercent) >= 0.6) {
+                this._setVolumePercent(this._lastPercent);
+                this._showVolumeOsd();
+            }
+            return;
+        }
+
+        if (Math.abs(delta) < 2) {
+            const snapped = snapPercent(percent, maxPercent);
+            this._lastPercent = snapped;
+            if (Math.abs(percent - snapped) >= 0.6)
+                this._setVolumePercent(snapped);
+            return;
+        }
+
+        const dir = Math.sign(delta);
+        const target = snapPercent(this._lastPercent + dir * STEP_PERCENT, maxPercent);
+        this._stepGuardDir = dir;
+        this._stepGuardUntil = now + STEP_GUARD_MS;
+        this._lastPercent = target;
+        if (Math.abs(percent - target) >= 0.6) {
+            this._setVolumePercent(target);
+            this._showVolumeOsd();
+        }
     }
 
     _setVolumePercent(percent) {
@@ -270,6 +351,7 @@ export default class SoundEnhancer extends Extension {
         } finally {
             this._busy = false;
         }
+        this._lastPercent = next;
         this._syncEntryText();
     }
 

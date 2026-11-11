@@ -25,7 +25,7 @@ export default class SoundEnhancerPreferences extends ExtensionPreferences {
 
         const steps = new Adw.SwitchRow({
             title: '5% volume steps',
-            subtitle: 'Always change volume in 5% increments. Fixes the mixed 5/6% jumps from keyboard keys and the slider.',
+            subtitle: 'Always change volume in 5% increments. Fixes keyboard keys, the slider, and headset volume wheels that jump by 10%.',
         });
         settings.bind('five-percent-steps', steps, 'active', Gio.SettingsBindFlags.DEFAULT);
         group.add(steps);

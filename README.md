@@ -2,7 +2,7 @@
 
 A GNOME Shell extension for the built-in volume control.
 
-- **5% volume steps** — keyboard keys, scrolling, and the Quick Settings slider always land on 0, 5, 10, …
+- **5% volume steps** — keyboard keys, headset volume wheels, scrolling, and the Quick Settings slider always land on 0, 5, 10, …
 - **Volume number** — an editable number next to the sound slider in Quick Settings
 
 Both options live in the extension settings. They are on by default.
